@@ -21,30 +21,34 @@ MMRIreg MMRI[MMRI_NUM];
  * Address  Description                            Type     R/W   Default Value
  * -----------------------------------------------------------------------------
  * 0        Programmer defined tag                 STRING   0     "cake!"
- * 1        User defined tag                       STRING   1     ""
- * 2        Password                               STRING   1     "abc123"
- * 3        Sysconfig                              UINT8    1     0x00
+ * 1        Build date                             STRING   0     varies
+ * 2        Build time                             STRING   0     varies
+ * 3        Build version                          UINT16   0     varies
+ *             Has format ABBCC where
+ *             A=0 for main code and A=1 for bootloader
+ *             BB = major version
+ *             CC = minor version
+ * 4        User defined tag                       STRING   1     ""
+ * 5        Password                               STRING   1     "abc123"
+ * 6        Sysconfig                              UINT8    1     0x00
  *          - write 0x01 to reset
  *          - write 0x02 to save registers to NVM
  *          - write 0x03 to relaod from NVM
  *          - write 0x04 to pretty print all registers
  *          - write 0x05 to enter bootloader
- * 4        Uart baud rate                         UINT32   1     921600
- * 5        Uart echo                              UINT8    1     1 = yes, 0 = no
+ * 7        Uart baud rate                         UINT32   1     921600
  */
 
 // System registers
 char *programmer_tag = "cake!";
 char *build_date = __DATE__;
 char *build_time = __TIME__;
-// Build version format ABBCC where:
-// A=0 for main code and A=1 for bootloader
-// BB = major version
-// CC = minor version
 uint16_t build_version = 00001;
 char user_tag[20] = "";
 char password[20] = "abc123";
 uint8_t mmri_config = 0;
+uint32_t u1_baud_rate = 921600;
+
 
 // Global variables
 uint8_t permission_level = 0;
@@ -79,7 +83,7 @@ void mmriInit()
    mmriInitVar(4, STRING, RW, NVM, NOPW, &user_tag[0]);
    mmriInitVar(5, STRING, RW, NVM, PWRW, &password[0]);
    mmriInitVar(6, UINT8, RW, VOL, NOPW, &mmri_config);
-
+   mmriInitVar(7, UINT32, RW, NVM, PWWR, &u1_baud_rate);
 }
 
 /*******************************************************************************

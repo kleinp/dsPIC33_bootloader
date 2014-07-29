@@ -6,7 +6,7 @@
  */
 
 #ifndef MMRI_H
-#define	MMRI_H
+#define MMRI_H
 
 // Number of variables in memory map !! NOTE: MAX OF 256 (8-bit value) !!
 #define MMRI_NUM    256
