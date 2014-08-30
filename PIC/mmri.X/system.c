@@ -6,6 +6,7 @@
  */
 
 #include "system.h"
+#include "stdio.h"
 
 uint32_t clock_frequency = 7370000;  // FRC frequency
 
@@ -90,3 +91,31 @@ uint32_t getClockFreq(void)
    return clock_frequency;
 }
 
+/*******************************************************************************
+ * Function:      printError
+ * Inputs:        <uint8_t> function error occured in
+ *                <uint8_t> error code
+ * Outputs:       None
+ * Description:   Prints an ASCII error message to U1
+ * ****************************************************************************/
+void printError(uint8_t fun, uint8_t code)
+{
+   static char *functions[] = {"UART", "MAIN", "MMRI", "IMU ", "QEI ", "ADC "};
+
+   printf("#E-%s-%03u\n", functions[fun], code);
+}
+
+/*******************************************************************************
+ * Function:      msDelay
+ * Inputs:        <uint32_t> delay in (ms)
+ * Outputs:       None
+ * Description:   Uses Nop() instruction and for loop to delay approximately
+ *                the specified number of milliseconds
+ * ****************************************************************************/
+void msDelay(uint32_t ms)
+{
+   uint32_t i = ms*(getClockFreq()/32000);
+
+   for(;i;i--)
+      Nop();
+}

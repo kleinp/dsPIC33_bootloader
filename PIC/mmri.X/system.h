@@ -64,6 +64,8 @@
 // Function declarations
 void changeClockFreq(unsigned char mhz);
 unsigned long getClockFreq(void);
+void printError(uint8_t fun, uint8_t code);
+void msDelay(uint32_t ms);
 
 #endif	/* SYSTEM_H */
 

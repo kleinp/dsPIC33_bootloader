@@ -13,7 +13,6 @@
 #define RX_BUFF_SIZE          50
 #define NUM_RX_BUFFS          5
 
-
 // DO NOT CHANGE! Circular buffer depends on overflowing of uint_8
 #define UART_BUFFER_SIZE		256
 #define TWO_STOP_BITS			0x01
@@ -45,6 +44,8 @@ typedef struct
    uint8_t buffer[UART_BUFFER_SIZE];
 } circBuf;
 
+extern uint8_t gp_buff[1000];
+
 // Simple circular buffer implementation as a software buffer
 uint8_t cbFull(circBuf *cb);
 uint8_t cbEmpty(circBuf *cb);
@@ -74,6 +75,6 @@ void uDmaReset(int8_t dma);
 uint8_t uDmaStatus(int8_t dma);
 void _uReEnableTx(int8_t dma);
 void _uReEnableRx(int8_t dma);
-int8_t *uGetMmriMsg(uint8_t previous);
+int8_t *uGetMmriMsg(void);
 
 #endif

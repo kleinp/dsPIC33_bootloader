@@ -15,10 +15,10 @@
 
 // UART buffers
 circBuf tx_buffer_u1;
-int8_t mmri_rx_buff[NUM_RX_BUFFS][RX_BUFF_SIZE + 1];
-uint8_t mmri_buff_write_ind = 0;
-uint8_t mmri_buff_read_ind = 0;
-uint8_t mmri_buff_num_msg = 0;
+int8_t mmri_buff[NUM_RX_BUFFS][RX_BUFF_SIZE];
+int8_t mmri_wb = 0; // which buffer to save incoming serial data
+int8_t mmri_rb = 0; // which buffer to read next
+int8_t mmri_unread = 0; // number of unread messages
 
 #if USING_UART2
 circBuf rx_buffer_u2;
@@ -34,6 +34,9 @@ int8_t dma_config[4] = {0, 0, 0, 0};
 
 // If bit is set, echo on UART
 uint8_t uart_echo = 0b0001;
+
+// Print buffer for any other function using DMA
+uint8_t gp_buff[1000];
 
 /*******************************************************************************
  * Function:      cbFull
@@ -131,9 +134,10 @@ void u1Init(uint32_t baud_rate, int8_t parity_mode, int8_t stop_bits)
 {
    cbInit(&tx_buffer_u1);
 
-   mmriInitVar(5, UINT8, RW, VOL, NOPW, &uart_echo);
+   mmriInitVar(8, UINT8, RW, VOL, NOPW, &uart_echo);
 
    U1MODE = 0; // reset UART
+   U1STA = 0;
 
    // 1 or 2 stop bits
    U1MODEbits.STSEL = stop_bits;
@@ -146,8 +150,8 @@ void u1Init(uint32_t baud_rate, int8_t parity_mode, int8_t stop_bits)
    uChangeBaud(baud_rate, U1);
 
    // Set up interrupts
-   U1STAbits.UTXISEL1 = 1; // interrupt if fifo has an empty spot
-   U1STAbits.UTXISEL0 = 0;
+   U1STAbits.UTXISEL1 = 1; // This setting not what DMA says to do, but seems to make both
+   U1STAbits.UTXISEL0 = 0; // DMA and regular printf happy
    U1STAbits.URXISEL1 = 0; // interrupt when there is anything in RX buffer
    U1STAbits.URXISEL0 = 0;
 
@@ -372,90 +376,76 @@ void uFlush(int8_t where)
  * ****************************************************************************/
 void __attribute__((interrupt, no_auto_psv)) _U1RXInterrupt(void)
 {
-   static uint8_t msg_len, count;
-   static int8_t c, ascii_bin, handler_state = 0;
-   static int8_t *rx_buff_ptr;
+   static int8_t c, escape = FALSE;
+   static uint8_t msg_len = 0;
+   static int8_t *rx_buff_ptr = &mmri_buff[0][0];
 
    while (U1STAbits.URXDA) // there is data in the built-in RX FIFO
    {
       c = U1RXREG;
-      
-      switch (handler_state)
+
+      // echo characters if enabled
+      if (uart_echo & 0b0001)
+         uPutChar(c, U1);
+
+      // If previous received character was escape sequence, simply accept the
+      // next character as data
+      if (escape)
       {
-         case 0: // looking for start of message
-            if (c == '#') // found ASCII start of message
-            {
-               ascii_bin = 0; // assume rest of message is ASCII
-               rx_buff_ptr = &mmri_rx_buff[mmri_buff_write_ind][1]; // point to a buffer
-               count = 0; // reset number of characters received
-               handler_state = 3; // go to get rest of ASCII message
-            }
-            else if (c == ':') // found binary start of message
-            {
-               ascii_bin = 1; // assume rest of message is binary
-               rx_buff_ptr = &mmri_rx_buff[mmri_buff_write_ind][1]; // point to a buffer
-               count = 0; // reset number of characters received
-               handler_state = 1; // next get length of message
-            }
-            break;
-         case 1: // get binary message length
-            msg_len = c;
+         *rx_buff_ptr++ = c;
+         msg_len++;
+         escape = FALSE;
+      }
+         // Otherwise, process byte as normal
+      else
+      {
+         // If end of message character is received advance buffer location
+         if (c == '\n')
+         {
+            // Null terminate message
+            *rx_buff_ptr = 0;
 
-            if (msg_len < RX_BUFF_SIZE)
-               handler_state = 2;
-            else
+            // Move on to next receive buffer
+            mmri_wb++;
+            if (mmri_wb >= NUM_RX_BUFFS)
+               mmri_wb = 0;
+
+            mmri_unread++;
+            // Handle buffer overrun
+            // If there are more unread messages than buffer slots (not being 
+            // written to), set number of unread to number of buffer slots -1,
+            // and point read buffer to oldest buffer not currently being
+            // overwritten
+            if (mmri_unread >= NUM_RX_BUFFS)
             {
-               mmriPrintError(1, 1); // bad message length
-               handler_state = 0;
+               printError(0, 1); // UART buffer overrun
+               mmri_unread = NUM_RX_BUFFS - 1;
+               mmri_rb = mmri_wb + 1;
             }
-            break;
-         case 2: // get binary message
-            count++;
+
+            rx_buff_ptr = &mmri_buff[mmri_wb][0];
+            msg_len = 0;
+         }
+            // If escape character is received, next byte is data
+         else if (c == 0x10)
+         {
+            escape = TRUE;
+         }
+            // character is not a special character, simply add to buffer
+         else
+         {
             *rx_buff_ptr++ = c;
-
-            if (count >= msg_len)
-            {
-               mmri_rx_buff[mmri_buff_write_ind][0] = msg_len | 0x80; // make first element msg length, set binary flag
-               mmri_buff_num_msg++;
-               mmri_buff_write_ind++;
-               if (mmri_buff_write_ind >= NUM_RX_BUFFS) // cycle through available buffers
-                  mmri_buff_write_ind = 0;
-               handler_state = 0;
-            }
-            // TODO: implement timeout
-            break;
-         case 3: // get ASCII message
-
-            if (c == '\r') // ignore this character
-               break;
-
-            count++;
-            *rx_buff_ptr++ = c;
-
-            if (count > RX_BUFF_SIZE)
-            {
-               mmriPrintError(0, 1); // bad message length
-               handler_state = 0;
-            }
-
-            if (c == '\n')
-            {
-               mmri_rx_buff[mmri_buff_write_ind][0] = count; // make first element message length
-               mmri_buff_num_msg++;
-               mmri_buff_write_ind++;
-               if (mmri_buff_write_ind >= NUM_RX_BUFFS) // cycle through available buffers
-                  mmri_buff_write_ind = 0;
-               handler_state = 0;
-            }
-            break;
-         default:
-            handler_state = 0;
-            break;
+            msg_len++;
+         }
       }
 
-      // Only echo characters if enabled and ASCII mode
-      if (uart_echo & 0b0001 && ascii_bin == 0)
-         uPutChar(c, U1);
+      // Check message length. If exceeded, discard the buffer and start over
+      if (msg_len >= RX_BUFF_SIZE)
+      {
+         printError(0, 2); // UART messag length overrun
+         rx_buff_ptr = &mmri_buff[mmri_wb][0];
+         msg_len = 0;
+      }
    }
 
    IFS0bits.U1RXIF = 0;
@@ -505,17 +495,19 @@ void __attribute__((interrupt, no_auto_psv)) _U2TXInterrupt(void)
  * Description:   This function replaces the built-in write function so that
  *                it can be re-directed to UART1
  * ****************************************************************************/
-int __attribute__((__section__(".libc.write"))) write(int16_t handle, void *buffer, uint16_t len)
+int __attribute__((__weak__, __section__(".libc"))) write(int handle, void *buffer, unsigned int len)
 {
-   int16_t i;
+   uint16_t i;
+
    switch (handle)
    {
-      default:
       case 0:
       case 1:
       case 2:
          for (i = len; i; i--)
-            uPutChar(*(int8_t*)buffer++, U1);
+            uPutChar(*(uint8_t *)buffer++, U1);
+         break;
+      default:
          break;
    }
    return(len);
@@ -739,34 +731,35 @@ void __attribute__((interrupt, no_auto_psv)) _DMA0Interrupt(void)
    uDmaReset(0);
 }
 
-int8_t *uGetMmriMsg(uint8_t previous)
+int8_t *uGetMmriMsg()
 {
    int8_t *tmp_ptr;
 
-   // Previous message was requested
-   if (previous)
+   // If there are unread messages, return a pointer
+   if (mmri_unread)
    {
-      if (mmri_buff_read_ind == 0) // roll-over fixer
-         tmp_ptr = &mmri_rx_buff[NUM_RX_BUFFS - 1][0];
-      else
-         tmp_ptr = &mmri_rx_buff[mmri_buff_read_ind - 1][0];
-   }
+      // roll over
+      if (mmri_rb >= NUM_RX_BUFFS)
+         mmri_rb = 0;
 
-      // If there is a message available, return a pointer to the start
-      // otherwise, a null pointer
-   else if (mmri_buff_num_msg)
-   {
-      mmri_buff_num_msg--;
-      tmp_ptr = &mmri_rx_buff[mmri_buff_read_ind++];
+      // decrement unread count w/roll over
+      mmri_unread--;
+      if (mmri_unread < 0)
+         mmri_unread = 0;
 
-      if (mmri_buff_read_ind >= NUM_RX_BUFFS) // roll over
-         mmri_buff_read_ind = 0;
+      // get pointer to beginning of buffer
+      tmp_ptr = &mmri_buff[mmri_rb++][0];
+
+      // roll over
+      if (mmri_rb >= NUM_RX_BUFFS)
+         mmri_rb = 0;
+
+      return(tmp_ptr);
    }
+      // Otherwise return NULL
    else
    {
-      tmp_ptr = 0;
+      return(NULL);
    }
-
-   return(tmp_ptr);
 }
 

@@ -26,6 +26,14 @@ _FICD(ICS_PGD2 & RSTPRI_PF & JTAGEN_OFF);
 
 int main(void)
 {
+   uint8_t uint8;
+   int8_t int8;
+   uint16_t uint16;
+   int16_t int16;
+   uint32_t uint32;
+   int32_t int32;
+   float fval;
+
    initIO();
 
    changeClockFreq(120);
@@ -33,12 +41,21 @@ int main(void)
    initPeripherals0();
    mmriInit();
 
+   mmriInitVar(10, UINT8, RW, VOL, NOPW, &uint8);
+   mmriInitVar(11, INT8, RW, VOL, NOPW, &int8);
+   mmriInitVar(12, UINT16, RW, VOL, NOPW, &uint16);
+   mmriInitVar(13, INT16, RW, VOL, NOPW, &int16);
+   mmriInitVar(14, UINT32, RW, VOL, NOPW, &uint32);
+   mmriInitVar(15, INT32, RW, VOL, NOPW, &int32);
+   mmriInitVar(16, FLOAT, RW, VOL, NOPW, &fval);
+
    printf("\nBuilt: %s, %s\nVersion: %05i\n\n", (char*)mmriGetRegPtr(1),
        (char*)mmriGetRegPtr(2), *(uint16_t*)mmriGetRegPtr(3));
 
    while (1)
    {
       // Do Low priority stuff
+      mmriMsgHandler();
    }
 
    return 0;

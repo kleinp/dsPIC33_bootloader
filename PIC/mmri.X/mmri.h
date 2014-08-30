@@ -81,6 +81,9 @@ int16_t mmriGetRegBin(uint8_t addr, uint8_t *buf);
 int16_t mmriGetRegAscii(uint8_t addr, uint8_t *buf);
 int16_t mmriSetRegBin(uint8_t addr, void *val);
 int16_t mmriSetRegAscii(uint8_t addr, uint8_t *buf);
+int16_t mmriGetRegTypeBin(uint8_t addr, uint8_t *buf);
+int16_t mmriGetRegTypeAscii(uint8_t addr, uint8_t *buf);
+
 void mmriPrintError(int8_t ascii_bin, uint8_t error);
 void mmriMsgHandler();
 void mmriParseBinary(int8_t *buf);
