@@ -36,7 +36,8 @@ int8_t dma_config[4] = {0, 0, 0, 0};
 uint8_t uart_echo = 0b0001;
 
 // Print buffer for any other function using DMA
-uint8_t gp_buff[1000];
+uint8_t gp_buff_A[2000];
+uint8_t gp_buff_B[2000];
 
 /*******************************************************************************
  * Function:      cbFull
@@ -378,7 +379,7 @@ void __attribute__((interrupt, no_auto_psv)) _U1RXInterrupt(void)
 {
    static int8_t c, escape = FALSE;
    static uint8_t msg_len = 0;
-   static int8_t *rx_buff_ptr = &mmri_buff[0][0];
+   static int8_t *rx_buff_ptr = &mmri_buff[0][1];
 
    while (U1STAbits.URXDA) // there is data in the built-in RX FIFO
    {
@@ -405,6 +406,9 @@ void __attribute__((interrupt, no_auto_psv)) _U1RXInterrupt(void)
             // Null terminate message
             *rx_buff_ptr = 0;
 
+            // Set message length
+            mmri_buff[mmri_wb][0] = msg_len;
+
             // Move on to next receive buffer
             mmri_wb++;
             if (mmri_wb >= NUM_RX_BUFFS)
@@ -423,7 +427,7 @@ void __attribute__((interrupt, no_auto_psv)) _U1RXInterrupt(void)
                mmri_rb = mmri_wb + 1;
             }
 
-            rx_buff_ptr = &mmri_buff[mmri_wb][0];
+            rx_buff_ptr = &mmri_buff[mmri_wb][1];
             msg_len = 0;
          }
             // If escape character is received, next byte is data
@@ -443,7 +447,7 @@ void __attribute__((interrupt, no_auto_psv)) _U1RXInterrupt(void)
       if (msg_len >= RX_BUFF_SIZE)
       {
          printError(0, 2); // UART messag length overrun
-         rx_buff_ptr = &mmri_buff[mmri_wb][0];
+         rx_buff_ptr = &mmri_buff[mmri_wb][1];
          msg_len = 0;
       }
    }

@@ -42,9 +42,11 @@
 #define BADADDR      3        // Address not used, recognized, read-only, or out of range
 #define BADVAL       4        // Value too big, small, long, negative, or NAN
 #define BADPASS      5        // Bad password entered, or not privileged to access
+#define BADLEN       6        // Bad message length (binary)
 
 // Which DMA does MMRI use to send out
 #define MMRI_DMA     0        // DMA0
+#define MMRI_U       1        // U1
 
 // Structure of a single register
 typedef struct
@@ -69,25 +71,23 @@ typedef union
    int8_t val8[4];
 } BYTEwise;
 
+#define printWithEscape(val, buf)   (if(val == 0x10 || val == 0xA){*buf++=0x10;*buf++=val}else{*buf++=val})
+
 void mmriInit(void);
 void mmriInitVar(uint8_t addr, uint8_t type, uint8_t rw, uint8_t nvm, uint8_t pwp, void *ptr);
-void mmriPrintReg(uint8_t addr);
-uint8_t mmriWriteRegAscii(uint8_t addr, char *value);
-void mmriPrintAllReg(void);
 
-
-void *mmriGetRegPtr(uint8_t addr);
-int16_t mmriGetRegBin(uint8_t addr, uint8_t *buf);
-int16_t mmriGetRegAscii(uint8_t addr, uint8_t *buf);
-int16_t mmriSetRegBin(uint8_t addr, void *val);
-int16_t mmriSetRegAscii(uint8_t addr, uint8_t *buf);
-int16_t mmriGetRegTypeBin(uint8_t addr, uint8_t *buf);
-int16_t mmriGetRegTypeAscii(uint8_t addr, uint8_t *buf);
-
-void mmriPrintError(int8_t ascii_bin, uint8_t error);
 void mmriMsgHandler();
 void mmriParseBinary(int8_t *buf);
 void mmriParseAscii(int8_t *buf);
+
+void mmriPrintAllReg(void);
+void *mmriGetRegPtr(uint8_t addr);
+uint8_t mmriGetRegBin(uint8_t addr, uint8_t *buf);
+uint8_t mmriGetRegAscii(uint8_t addr, uint8_t *buf);
+uint8_t mmriSetRegBin(uint8_t addr, void *val);
+uint8_t mmriSetRegAscii(uint8_t addr, uint8_t *buf);
+uint8_t mmriGetRegTypeBin(uint8_t addr, uint8_t *buf);
+uint8_t mmriGetRegTypeAscii(uint8_t addr, uint8_t *buf);
 
 #endif	/* MMRI_H */
 

@@ -10,7 +10,7 @@
 #define UARTH
 
 // MMRI U1 defines
-#define RX_BUFF_SIZE          50
+#define RX_BUFF_SIZE          51
 #define NUM_RX_BUFFS          5
 
 // DO NOT CHANGE! Circular buffer depends on overflowing of uint_8
@@ -44,7 +44,8 @@ typedef struct
    uint8_t buffer[UART_BUFFER_SIZE];
 } circBuf;
 
-extern uint8_t gp_buff[1000];
+extern uint8_t gp_buff_A[2000];
+extern uint8_t gp_buff_B[2000];
 
 // Simple circular buffer implementation as a software buffer
 uint8_t cbFull(circBuf *cb);

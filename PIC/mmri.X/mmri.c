@@ -55,9 +55,9 @@ uint32_t u1_baud_rate = 921600;
 uint8_t permission_level = 0;
 char rw_stat[] = "ro";
 char *type[] = {"undef ", "uint8 ", "int8  ", "uint16", "int16 ", "uint32",
-   "int32 ", "float", "string"};
+   "int32 ", "float ", "string"};
 
-int8_t binary_val_lengths[] = {0, 1, 1, 2, 2, 4, 4, 4, 20};
+int8_t binary_val_lengths[] = {0, 1, 1, 2, 2, 4, 4, 4, 1};
 uint8_t response_buffer[200];
 
 /*******************************************************************************
@@ -117,174 +117,287 @@ void mmriInitVar(uint8_t addr, uint8_t type, uint8_t rw, uint8_t nvm,
 }
 
 /*******************************************************************************
- * Function:      mmriPrintReg
- * Inputs:        <uint8 addr> address of the register to read
- * Outputs:       None
- * Description:   Prints the value associated with the register address
- *                provided. If the user does not have password privileges, it
- *                does not display pasword read protected registers (PWRD), but
- *                5 '*' characters instead
+ * Function:      mmriMsgHandler
+ * Inputs:        <none>
+ * Outputs:       <none>
+ * Description:   Checks if there are any messages available in the buffer
+ *                (populated by U1 interrupt) and calls the appropriate
+ *                parser
+ *
+ *                Note: The mmri interface hogs DMA0 and U1.. Try not to use
+ *                      it for anything else
  * ****************************************************************************/
-void mmriPrintReg(uint8_t addr)
+void mmriMsgHandler()
 {
-   if (permission_level >= MMRI[addr].pwp)
+   int8_t * msg_ptr = uGetMmriMsg();
+
+   if (msg_ptr) // a message is available
    {
-      switch (MMRI[addr].type)
-      {
-         case UINT8: printf("%u", *(uint8_t*)MMRI[addr].ptr);
-            break;
-         case INT8: printf("%i", *(int8_t*)MMRI[addr].ptr);
-            break;
-         case UINT16: printf("%u", *(uint16_t*)MMRI[addr].ptr);
-            break;
-         case INT16: printf("%i", *(int16_t*)MMRI[addr].ptr);
-            break;
-         case UINT32: printf("%lu", *(uint32_t*)MMRI[addr].ptr);
-            break;
-         case INT32: printf("%li", *(int32_t*)MMRI[addr].ptr);
-            break;
-         case FLOAT: printf("%f", *(double*)MMRI[addr].ptr);
-            break;
-         case STRING: printf("%s", (char*)MMRI[addr].ptr);
-            break;
-         default: printf("?");
-      }
+      if (*++msg_ptr == ':')
+         mmriParseBinary(--msg_ptr);
+      else
+         mmriParseAscii(--msg_ptr);
    }
-   else
-      printf("*****");
 }
 
 /*******************************************************************************
- * Function:      mmriWriteRegAscii
- * Inputs:        <uint8 addr> address of the register to write
- *                <char *value> value in ASCII string to write to register
- * Outputs:       <uint8> error code, or 0 if none
- * Description:   This function will write the value given by the ASCII string
- *                to the register address. Simple checks performed for correct
- *                data type. Also handles special register, such as password
- *                unlock/lock and config registers
+ * Function:      mmriParseBinary
+ * Inputs:        <int8_t *> buffer
+ * Outputs:       <none>
+ * Description:   Takes the string received by U1 and parses it assuming it
+ *                is in binary format. Reads/write appropriate register(s)
+ *                See mmri documentation for details
  * ****************************************************************************/
-uint8_t mmriWriteRegAscii(uint8_t addr, char *value)
+void mmriParseBinary(int8_t *buf)
 {
-   char *val = value;
-   char *end;
-   uint8_t tmp;
-   uint32_t unsigned_val;
-   int32_t signed_val;
-   float float_val;
+   uint8_t * ptr_A = &gp_buff_A[0], *ptr_B = &gp_buff_B[0];
 
-   // special case, register 2 - password
-   if (addr == 2)
-   {
-      if (permission_level) // if we already have permission, write new password
-      {
-         strcpy(&password[0], val);
-         return(NOERROR);
-      }
-      else // if not, compare the value given and stored password
-      {
-         if (strcmp(&password[0], val) == 0)
-         {
-            permission_level = 2; // give privileges if they match
-            return(NOERROR);
-         }
-         else
-            return(BADPASS);
-      }
-   }
-   // special case register 3 - MMRI config
-   if (addr == 3)
-   {
-      tmp = (uint8_t)atoi(val);
-      switch (tmp)
-      {
-         case 1: // reset device
-            reset();
-            break;
-         case 2: // Save register values to NVM
-            return(NOERROR);
-         case 3: // undo password permission level
-            permission_level = 0;
-            return(NOERROR);
-         case 4:
-            mmriPrintAllReg();
-            return(NOERROR);
-         default:
-            return(BADVAL);
-      }
-   }
-   // special case register 4 - UART baud rate
-   if (addr == 4)
-   {
+   uint16_t i, print_len = 0;
+   int16_t msg_len = (int16_t)*buf++;
+   uint8_t addr, num, var_len;
 
-   }
-   if (MMRI[addr].rw && MMRI[addr].used) // the address is available and writable
-   {
-      switch (MMRI[addr].type)
-      {
-         case UINT8:
-            unsigned_val = strtoul(val, &end, 0);
-            if (unsigned_val > UCHAR_MAX)
-               return(BADVAL);
-            if (*end != '\0')
-               return(BADVAL);
-            *(uint8_t*)MMRI[addr].ptr = (uint8_t)unsigned_val;
-            return(NOERROR);
-         case INT8:
-            signed_val = strtol(val, &end, 0);
-            if (signed_val > CHAR_MAX || signed_val < CHAR_MIN)
-               return(BADVAL);
-            if (*end != '\0')
-               return(BADVAL);
-            *(int8_t*)MMRI[addr].ptr = (int8_t)signed_val;
-            return(NOERROR);
-         case UINT16:
-            unsigned_val = strtoul(val, &end, 0);
-            if (unsigned_val > UINT_MAX)
-               return(BADVAL);
-            if (*end != '\0')
-               return(BADVAL);
-            *(uint16_t*)MMRI[addr].ptr = (uint16_t)unsigned_val;
-            return(NOERROR);
-         case INT16:
-            signed_val = strtol(val, &end, 0);
-            if (signed_val > INT_MAX || signed_val < INT_MIN)
-               return(BADVAL);
-            if (*end != '\0')
-               return(BADVAL);
-            *(int16_t*)MMRI[addr].ptr = (int16_t)signed_val;
-            return(NOERROR);
-         case UINT32:
-            unsigned_val = strtoul(val, &end, 0);
-            if (*end != '\0')
-               return(BADVAL);
-            *(uint32_t*)MMRI[addr].ptr = unsigned_val;
-            return(NOERROR);
-         case INT32:
-            signed_val = strtol(val, &end, 0);
-            if (*end != '\0')
-               return(BADVAL);
-            *(int32_t*)MMRI[addr].ptr = signed_val;
-            return(NOERROR);
-         case FLOAT:
-            float_val = strtod(val, &end);
-            if (*end != '\0')
-               return(BADVAL);
-            *(float*)MMRI[addr].ptr = float_val;
-            return(NOERROR);
-         case STRING:
-            if (strlen(val) > 20)
-               return(BADVAL);
-            strcpy((char*)MMRI[addr].ptr, val);
-            return(NOERROR);
-         default:
-            return(UNKNOWN);
-      }
-   }
+   //printf("msg len: %i\n", msg_len);
+
+   // if message length is less than 3, it contains nothing useful
+   // first char is ':' followed by cmd type
+   if (msg_len < 3)
+      gp_buff_A[print_len++] = BADLEN;
    else
-      return(BADADDR);
+   {
+      // Start of binary message
+      gp_buff_A[print_len++] = ':';
 
-   return(UNKNOWN); // should never get here
+      // placeholder for potential errors
+      // gp_buff_A[print_len++] = 0;
+
+      // ignore the ':' and switch off of the next byte (command type)
+      buf++;
+
+      // take off the ':' and command type
+      msg_len-=2;
+      
+      switch (*buf++)
+      {
+         case 1: // Get register(s)
+            while(msg_len > 0)
+            {
+               addr = *buf++;
+               msg_len--;
+
+               print_len += mmriGetRegBin(addr, &gp_buff_A[print_len]);
+            }
+            break;
+         case 2: // Multi-get register(s)
+            while(msg_len > 0)
+            {
+               addr = *buf++;
+               msg_len--;
+
+               if (msg_len == 0) // incomplete command
+                  break;
+
+               num = *buf++;
+               msg_len--;
+
+               while(num)
+               {
+                  print_len += mmriGetRegBin(addr++, &gp_buff_A[print_len]);
+                  num--;
+               }
+            }
+            break;
+         case 3: // Set register(s)
+            while(msg_len > 0)
+            {
+               addr = *buf++;
+               msg_len--;
+
+               var_len = binary_val_lengths[MMRI[addr].type];
+               if (msg_len < var_len) // incomplete command
+                  break;
+
+               msg_len-=var_len;
+
+               if (MMRI[addr].type == STRING)   // strings are variable length
+                  msg_len -= *buf;
+
+               gp_buff_A[print_len++] = mmriSetRegBin(addr, (void *)buf);
+            }
+            break;
+         case 4: // Get register(s) format
+            while(msg_len > 0)
+            {
+               addr = *buf++;
+               msg_len--;
+
+               print_len += mmriGetRegTypeBin(addr, &gp_buff_A[print_len]);
+            }
+            break;
+         case 5: // Multi-get register(s) format
+            while(msg_len > 0)
+            {
+               addr = *buf++;
+               msg_len--;
+
+               if (msg_len == 0)
+                  break;
+
+               num = *buf++;
+               msg_len--;
+
+               while(num)
+               {
+                  print_len += mmriGetRegTypeBin(addr++, &gp_buff_A[print_len]);
+                  num--;
+               }
+            }
+            break;
+         default: // unknown command type
+            break;
+      }
+   }
+
+   // Add escape characters as required by transferring the data to another buffer
+   i = print_len;
+   while (i--)
+   {
+      if (*ptr_A == 0x10 || *ptr_A == 0xA)
+      {
+         *ptr_B++ = 0x10;
+         *ptr_B++ = *ptr_A++;
+         print_len++;
+      }
+      else
+         *ptr_B++ = *ptr_A++;
+   }
+
+   gp_buff_B[print_len++] = '\n';
+   while (uDmaStatus(MMRI_DMA));
+   uDmaTx(&gp_buff_B[0], print_len, MMRI_DMA, MMRI_U);
+
+}
+
+/*******************************************************************************
+ * Function:      mmriParseAscii
+ * Inputs:        <int8_t *> buffer
+ * Outputs:       <none>
+ * Description:   Takes the string received by U1 and parses it assuming it
+ *                is in ASCII. Reads/writes appropriate register(s)
+ *                See mmri documentation for details
+ * ****************************************************************************/
+void mmriParseAscii(int8_t *buf)
+{
+   static char *sub_str;
+   const char *delim = ",\n\r\0";
+   static uint8_t addr, num_regs;
+   static int16_t error;
+
+   char * str_buf = (char *)buf;
+   uint16_t print_len = 0;
+
+   // Ignore message length
+   str_buf++;
+
+   // Ignore the ASCII start of message, if given
+   if (*str_buf == '#')
+      str_buf++;
+
+   // First part of message is register
+   sub_str = strtok(str_buf, delim);
+
+   while (*sub_str)
+   {
+      // Convert string into value
+      addr = (uint8_t)atoi(sub_str);
+
+      // Second part is value, or '?'
+      sub_str = strtok(NULL, delim);
+
+      // If it is a '?', print contents of register. If ? is followed by a
+      // number, print the contents of that number of registers. If it is a %,
+      // or % followed by a number, display the type of that register(s). If it
+      // is simply a number (or string), write to the register
+      switch (*sub_str)
+      {
+         case '?':
+            // If the next character is a newline or ',' the user did not
+            // enter a number of registers to print.
+            sub_str++;
+            if (*sub_str == '\n' || *sub_str == ',' || *sub_str == '\r' || *sub_str == 0)
+               num_regs = 1;
+            else
+               num_regs = (uint8_t)atoi(sub_str);
+
+            // Print either # (beginning of message), or ',' to separate values
+            if (print_len == 0)
+               gp_buff_A[print_len++] = '#';
+            else
+               gp_buff_A[print_len++] = ',';
+
+            // Add as many values as requested to the print buffer
+            while (num_regs)
+            {
+               print_len += mmriGetRegAscii(addr++, &gp_buff_A[print_len]);
+               num_regs--;
+
+               if (num_regs)
+                  gp_buff_A[print_len++] = ',';
+            }
+            break;
+         case '%':
+            // If the next character is a newline or ',' the user did not
+            // enter a number of registers to print.
+            sub_str++;
+            if (*sub_str == '\n' || *sub_str == ',' || *sub_str == '\r' || *sub_str == 0)
+               num_regs = 1;
+            else
+               num_regs = (uint8_t)atoi(sub_str);
+
+            // Print either # (beginning of message), or ',' to separate multiple values
+            if (print_len == 0)
+               gp_buff_A[print_len++] = '#';
+            else
+               gp_buff_A[print_len++] = ',';
+
+            // Add as many types as requested to the print buffer
+            while (num_regs)
+            {
+               print_len += mmriGetRegTypeAscii(addr++, & gp_buff_A[print_len]);
+               num_regs--;
+
+               if (num_regs)
+                  gp_buff_A[print_len++] = ',';
+            }
+            break;
+         default:
+            // We want to write to a register
+            error = mmriSetRegAscii(addr, (uint8_t*)sub_str);
+
+            if (error)
+            {
+               // Print either # (beginning of message), or ',' to separate multiple values
+               if (print_len == 0)
+                  gp_buff_A[print_len++] = '#';
+               else
+                  gp_buff_A[print_len++] = ',';
+
+               gp_buff_A[print_len++] = 'E';
+               gp_buff_A[print_len++] = error + '0';
+            }
+            break;
+      }
+
+      // Attempt to get another value
+      sub_str = strtok(NULL, delim);
+   }
+
+   // If there is anything to print, add a newline to it, and start DMA transfer
+   if (print_len)
+   {
+      gp_buff_A[print_len++] = '\n';
+      while (uDmaStatus(MMRI_DMA));
+      uDmaTx(&gp_buff_A[0], print_len, MMRI_DMA, MMRI_U);
+   }
 }
 
 /*******************************************************************************
@@ -297,21 +410,35 @@ uint8_t mmriWriteRegAscii(uint8_t addr, char *value)
  * ****************************************************************************/
 void mmriPrintAllReg(void)
 {
-   uint16_t i;
-   printf("\n| ADR | RW | N | P | TYPE   | VALUE");
+   uint16_t i, print_len = 0;
+
+   // print header
+   print_len += sprintf((char *)&gp_buff_A[print_len], "\n| ADR | RW | N | P | TYPE   | VALUE");
+
    for (i = 0; i < MMRI_NUM; i++)
    {
+      // If the register is used, print its info
       if (MMRI[i].used)
       {
-         if (MMRI[i].rw) // change 'rw' flag
+         if (MMRI[i].rw) // change 'rw' flag as necessary
             rw_stat[1] = 'w';
          else
             rw_stat[1] = 'o';
 
-         printf("\n| %03i | %s | %i | %i | %s | ", i, &rw_stat[0], MMRI[i].nvm,
-             MMRI[i].pwp, type[MMRI[i].type]);
-         mmriPrintReg(i);
+         // print type, read/write, password protection, and non-volatile about the register
+         print_len += sprintf((char *)&gp_buff_A[print_len], "\n| %03i | %s | %i | %i | %s | ",
+             i, &rw_stat[0], MMRI[i].nvm, MMRI[i].pwp, type[MMRI[i].type]);
+         // print value in register
+         print_len += mmriGetRegAscii(i, &gp_buff_A[print_len]);
       }
+   }
+
+   // If there is something to print, add a newline and start the DMA
+   if (print_len)
+   {
+      gp_buff_A[print_len++] = '\n';
+      while (uDmaStatus(MMRI_DMA));
+      uDmaTx(&gp_buff_A[0], print_len, MMRI_DMA, MMRI_U);
    }
 }
 
@@ -331,20 +458,17 @@ void *mmriGetRegPtr(uint8_t addr)
  * Function:      mmriGetRegBin
  * Inputs:        <uint8_t addr> Which address' value to get
  *                <uint8_t *buf> Where to put the value result
- * Outputs:       <int16_t> how many bytes were written
+ * Outputs:       <uint8_t> how many bytes were written
  * Description:   Puts the value at <addr> into <*buf> in binary form.
  *                Returns how many bytes were written, which
  *                depends on size of variable
  * ****************************************************************************/
-int16_t mmriGetRegBin(uint8_t addr, uint8_t *buf)
+uint8_t mmriGetRegBin(uint8_t addr, uint8_t *buf)
 {
    static BYTEwise byte_separated;
-   static int8_t num_bytes_copy;
    static uint8_t *str_ptr;
 
-   int8_t num_bytes = binary_val_lengths[MMRI[addr].type];
-
-   num_bytes_copy = num_bytes;
+   int16_t i, num_bytes = 0;
 
    if (permission_level >= MMRI[addr].pwp && MMRI[addr].used)
    {
@@ -353,12 +477,14 @@ int16_t mmriGetRegBin(uint8_t addr, uint8_t *buf)
          case UINT8:
          case INT8:
             *buf = *(uint8_t *)mmriGetRegPtr(addr);
+            num_bytes++;
             break;
          case UINT16:
          case INT16:
             byte_separated.val32 = (int32_t) *(uint16_t *)mmriGetRegPtr(addr);
             *buf++ = byte_separated.val8[0];
             *buf = byte_separated.val8[1];
+            num_bytes+=2;
             break;
          case UINT32:
          case INT32:
@@ -368,37 +494,47 @@ int16_t mmriGetRegBin(uint8_t addr, uint8_t *buf)
             *buf++ = byte_separated.val8[1];
             *buf++ = byte_separated.val8[2];
             *buf = byte_separated.val8[3];
+            num_bytes+=4;
             break;
          case STRING:
+            // First character of string response is length of string in bytes
+            // followed by that many characters
             str_ptr = (uint8_t*)mmriGetRegPtr(addr);
-            while (num_bytes--)
+            num_bytes = strlen((char *)str_ptr);
+            *buf++ = num_bytes;
+            i = num_bytes;
+            while (*str_ptr && i--)
                *buf++ = *str_ptr++;
+            num_bytes++;   // for the string length byte
             break;
          default:
-            while (num_bytes--)
-               *buf++ = 0;
             break;
       }
    }
-   else
+   else if (MMRI[addr].used)
    {
-      while (num_bytes--)
+      i = binary_val_lengths[MMRI[addr].type];
+
+      while (i--)
+      {
          *buf++ = 0;
+         num_bytes++;
+      }
    }
 
-   return(num_bytes_copy);
+   return(num_bytes);
 }
 
 /*******************************************************************************
  * Function:      mmriGetRegAscii
  * Inputs:        <uint8_t addr> Which address' value to get
  *                <uint8_t *buf> Where to put the value result
- * Outputs:       <int16_t> how many bytes were written
+ * Outputs:       <uint8_t> how many bytes were written
  * Description:   Puts the value at <addr> into <*buf> in ASCII form.
  *                Returns how many bytes were written, which may be variable
  *                length depending on variable value and type
  * ****************************************************************************/
-int16_t mmriGetRegAscii(uint8_t addr, uint8_t *buf)
+uint8_t mmriGetRegAscii(uint8_t addr, uint8_t *buf)
 {
    if (permission_level >= MMRI[addr].pwp && MMRI[addr].used)
    {
@@ -425,11 +561,13 @@ int16_t mmriGetRegAscii(uint8_t addr, uint8_t *buf)
  * Function:      mmriSetRegBin
  * Inputs:        <uint8_t addr> Which address' value to write
  *                <void *val> A pointer to the variable value
- * Outputs:       <int16_t> error code or 0 for sucess
+ * Outputs:       <uint8_t> error code or 0 for sucess
  * Description:   Sets the variable at <addr> to value specified by <val> pointer
  * ****************************************************************************/
-int16_t mmriSetRegBin(uint8_t addr, void *val)
+uint8_t mmriSetRegBin(uint8_t addr, void *val)
 {
+   static uint8_t str_len;
+
    // special case, register 2 - password
    if (addr == 5)
    {
@@ -500,7 +638,8 @@ int16_t mmriSetRegBin(uint8_t addr, void *val)
             *(float*)MMRI[addr].ptr = *(float*)val;
             break;
          case STRING:
-            strcpy((char*)MMRI[addr].ptr, (char*)val);
+            str_len = *(uint8_t *)val++;
+            memcpy((char*)MMRI[addr].ptr, (char*)val, str_len);
             break;
          default:
             return(UNKNOWN);
@@ -516,17 +655,18 @@ int16_t mmriSetRegBin(uint8_t addr, void *val)
  * Function:      mmriSetRegAscii
  * Inputs:        <uint8_t addr> Which address' value to write
  *                <uint8_t *buf> An ASCII buffer which contains value
- * Outputs:       <int16_t> error code or 0 for sucess
- * Description:   Sets the variable at <addr> to value specified by <buf>
+ * Outputs:       <uint8_t> error code or 0 for sucess
+ * Description:   Sets the variable at <addr> to value specified by <buf> by
+ *                converting ASCII to binary and calling the binary function
+ *                (except for strings, which are written directly)
  * ****************************************************************************/
-int16_t mmriSetRegAscii(uint8_t addr, uint8_t *buf)
+uint8_t mmriSetRegAscii(uint8_t addr, uint8_t *buf)
 {
    char *str = (char *)buf;
    static char *end;
    static uint32_t unsigned_val;
    static int32_t signed_val;
    static float float_val;
-   // Convert ASCII to binary, and call binary function!
 
    switch (MMRI[addr].type)
    {
@@ -576,7 +716,7 @@ int16_t mmriSetRegAscii(uint8_t addr, uint8_t *buf)
       case STRING:
          if (strlen(str) > 20)
             return(BADVAL);
-         if (*str)   // only use strcpy if the string isn't blank
+         if (*str) // only use strcpy if the string isn't blank
             strcpy((char*)MMRI[addr].ptr, str);
          else
             *(char*)MMRI[addr].ptr = 0;
@@ -593,11 +733,11 @@ int16_t mmriSetRegAscii(uint8_t addr, uint8_t *buf)
  * Function:      mmriGetRegTypeBin
  * Inputs:        <uint8_t addr> Which address' type to get
  *                <uint8_t *buf> Where to put the type result
- * Outputs:       <int16_t> how many bytes were written
+ * Outputs:       <uint8_t> how many bytes were written
  * Description:   Puts the type of the value at <addr> into <*buf> in binary
  *                form. Returns how many bytes were written
  * ****************************************************************************/
-int16_t mmriGetRegTypeBin(uint8_t addr, uint8_t *buf)
+uint8_t mmriGetRegTypeBin(uint8_t addr, uint8_t *buf)
 {
    switch (MMRI[addr].type)
    {
@@ -628,11 +768,11 @@ int16_t mmriGetRegTypeBin(uint8_t addr, uint8_t *buf)
  * Function:      mmriGetRegTypeAscii
  * Inputs:        <uint8_t addr> Which address' type to get
  *                <uint8_t *buf> Where to put the type result
- * Outputs:       <int16_t> how many bytes were written
+ * Outputs:       <uint8_t> how many bytes were written
  * Description:   Puts the type of the value at <addr> into <*buf> in ASCII
  *                form. Returns how many bytes were written
  * ****************************************************************************/
-int16_t mmriGetRegTypeAscii(uint8_t addr, uint8_t *buf)
+uint8_t mmriGetRegTypeAscii(uint8_t addr, uint8_t *buf)
 {
    switch (MMRI[addr].type)
    {
@@ -645,146 +785,5 @@ int16_t mmriGetRegTypeAscii(uint8_t addr, uint8_t *buf)
       case FLOAT: return(sprintf((char *)buf, "FLOAT"));
       case STRING: return(sprintf((char *)buf, "STRING"));
       default: return(sprintf((char *)buf, "?"));
-   }
-}
-
-/*******************************************************************************
- * Function:      mmriMsgHandler
- * Inputs:        <none>
- * Outputs:       <none>
- * Description:   Checks if there are any messages available in the buffer
- *                (populated by U1 interrupt) and calls the appropriate
- *                parser
- *
- *                Note: The mmri interface hogs DMA0 and U1.. Try not to use
- *                      it for anything else
- * ****************************************************************************/
-void mmriMsgHandler()
-{
-   int8_t * msg_ptr = uGetMmriMsg();
-
-   if (msg_ptr) // a message is available
-   {
-      if (*msg_ptr == ':')
-         mmriParseBinary(msg_ptr);
-      else
-         mmriParseAscii(msg_ptr);
-   }
-}
-
-void mmriParseBinary(int8_t *buf)
-{
-   printf("#parsing binary\n");
-}
-
-void mmriParseAscii(int8_t *buf)
-{
-   static char *sub_str;
-   const char *delim = ",\n\r\0";
-   static uint8_t addr, num_regs;
-   static int16_t error;
-
-   char * str_buf = (char *)buf;
-   uint16_t print_len = 0;
-
-   // Ignore the ASCII start of message, if given
-   if (*str_buf == '#')
-      str_buf++;
-
-   // First part of message is register
-   sub_str = strtok(str_buf, delim);
-
-   while (*sub_str)
-   {
-      // Convert string into value
-      addr = (uint8_t)atoi(sub_str);
-
-      // Second part is value, or '?'
-      sub_str = strtok(NULL, delim);
-
-      // If it is a '?', print contents of register. If ? is followed by a
-      // number, print the contents of that number of registers. If it is a %,
-      // or % followed by a number, display the type of that register(s). If it
-      // is simply a number (or string), write to the register
-      switch (*sub_str)
-      {
-         case '?':
-            // If the next character is a newline or ',' the user did not
-            // enter a number of registers to print.
-            sub_str++;
-            if (*sub_str == '\n' || *sub_str == ',' || *sub_str == '\r' || *sub_str == 0)
-               num_regs = 1;
-            else
-               num_regs = (uint8_t)atoi(sub_str);
-
-            // Print either # (beginning of message), or ',' to separate values
-            if (print_len == 0)
-               gp_buff[print_len++] = '#';
-            else
-               gp_buff[print_len++] = ',';
-
-            // Add as many values as requested to the print buffer
-            while (num_regs)
-            {
-               print_len += mmriGetRegAscii(addr++, &gp_buff[print_len]);
-               num_regs--;
-
-               if (num_regs)
-                  gp_buff[print_len++] = ',';
-            }
-            break;
-         case '%':
-            // If the next character is a newline or ',' the user did not
-            // enter a number of registers to print.
-            sub_str++;
-            if (*sub_str == '\n' || *sub_str == ',' || *sub_str == '\r' || *sub_str == 0)
-               num_regs = 1;
-            else
-               num_regs = (uint8_t)atoi(sub_str);
-
-            // Print either # (beginning of message), or ',' to separate multiple values
-            if (print_len == 0)
-               gp_buff[print_len++] = '#';
-            else
-               gp_buff[print_len++] = ',';
-
-            // Add as many types as requested to the print buffer
-            while (num_regs)
-            {
-               print_len += mmriGetRegTypeAscii(addr++, & gp_buff[print_len]);
-               num_regs--;
-
-               if (num_regs)
-                  gp_buff[print_len++] = ',';
-            }
-            break;
-         default:
-            // We want to write to a register
-            error = mmriSetRegAscii(addr, (uint8_t*)sub_str);
-
-            if (error)
-            {
-               // Print either # (beginning of message), or ',' to separate multiple values
-               if (print_len == 0)
-                  gp_buff[print_len++] = '#';
-               else
-                  gp_buff[print_len++] = ',';
-
-               gp_buff[print_len++] = 'E';
-               gp_buff[print_len++] = error+'0';
-            }
-            break;
-      }
-
-      // Attempt to get another value
-      sub_str = strtok(NULL, delim);
-   }
-
-   // If there is anything to print, add a newline to it, and start DMA transfer
-   if (print_len)
-   {
-      gp_buff[print_len++] = '\n';
-      while (uDmaStatus(MMRI_DMA));
-      uDmaTx(&gp_buff[0], print_len, MMRI_DMA, U1);
    }
 }

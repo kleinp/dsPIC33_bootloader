@@ -26,11 +26,11 @@ _FICD(ICS_PGD2 & RSTPRI_PF & JTAGEN_OFF);
 
 int main(void)
 {
-   uint8_t uint8;
-   int8_t int8;
+   uint8_t uint8 = 0xA;
+   int8_t int8 = 0x10;
    uint16_t uint16;
    int16_t int16;
-   uint32_t uint32;
+   uint32_t uint32 = 0xABCDEF;
    int32_t int32;
    float fval;
 
