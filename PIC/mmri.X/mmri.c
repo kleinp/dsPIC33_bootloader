@@ -50,7 +50,6 @@ char password[20] = "abc123";
 uint8_t mmri_config = 0;
 uint32_t u1_baud_rate = 921600;
 
-
 // Global variables
 uint8_t permission_level = 0;
 char rw_stat[] = "ro";
@@ -568,7 +567,7 @@ uint8_t mmriSetRegBin(uint8_t addr, void *val)
 {
    static uint8_t str_len;
 
-   // special case, register 2 - password
+   // special case, register 5 - password
    if (addr == 5)
    {
       if (permission_level) // if we already have permission, write new password
@@ -587,7 +586,7 @@ uint8_t mmriSetRegBin(uint8_t addr, void *val)
             return(BADPASS);
       }
    }
-   // special case register 3 - MMRI config
+   // special case register 6 - MMRI config
    if (addr == 6)
    {
       switch (*(uint8_t*)val)
@@ -596,6 +595,7 @@ uint8_t mmriSetRegBin(uint8_t addr, void *val)
             reset();
             break;
          case 2: // Save register values to NVM
+            // TODO: Implement NVM
             return(NOERROR);
          case 3: // undo password permission level
             permission_level = 0;
@@ -610,6 +610,7 @@ uint8_t mmriSetRegBin(uint8_t addr, void *val)
    // special case register 4 - UART baud rate
    if (addr == 4)
    {
+      // TODO: Implement baud rate changing
       return(BADVAL);
    }
    if (MMRI[addr].rw && MMRI[addr].used) // the address is available and writable
@@ -646,6 +647,11 @@ uint8_t mmriSetRegBin(uint8_t addr, void *val)
       }
 
       return(NOERROR);
+   }
+   else if (MMRI[addr].used)
+   {
+      // Bad permission to write to the register
+      return(BADPASS);
    }
 
    return(UNKNOWN);
