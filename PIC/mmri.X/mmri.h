@@ -43,6 +43,7 @@
 #define BADVAL       4        // Value too big, small, long, negative, or NAN
 #define BADPASS      5        // Bad password entered, or not privileged to access
 #define BADLEN       6        // Bad message length (binary)
+#define INCOMPLETE   7        // Incomplete command
 
 // Which DMA does MMRI use to send out
 #define MMRI_DMA     0        // DMA0

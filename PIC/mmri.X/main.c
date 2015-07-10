@@ -26,6 +26,7 @@ _FICD(ICS_PGD2 & RSTPRI_PF & JTAGEN_OFF);
 
 int main(void)
 {
+   uint16_t reset = RCON;
    uint8_t uint8 = 0xA;
    int8_t int8 = 0x10;
    uint16_t uint16;
@@ -38,9 +39,9 @@ int main(void)
 
    changeClockFreq(120);
 
-   initPeripherals0();
    mmriInit();
-
+   initPeripherals0();
+   
    mmriInitVar(10, UINT8, RW, VOL, NOPW, &uint8);
    mmriInitVar(11, INT8, RW, VOL, NOPW, &int8);
    mmriInitVar(12, UINT16, RW, VOL, NOPW, &uint16);
@@ -49,8 +50,8 @@ int main(void)
    mmriInitVar(15, INT32, RW, VOL, NOPW, &int32);
    mmriInitVar(16, FLOAT, RW, VOL, NOPW, &fval);
 
-   printf("\nBuilt: %s, %s\nVersion: %05i\n\n", (char*)mmriGetRegPtr(1),
-       (char*)mmriGetRegPtr(2), *(uint16_t*)mmriGetRegPtr(3));
+   printf("\nBuilt: %s, %s\nVersion: %05i %X\n\n", (char*)mmriGetRegPtr(1),
+       (char*)mmriGetRegPtr(2), *(uint16_t*)mmriGetRegPtr(3), reset);
 
    while (1)
    {
@@ -73,11 +74,6 @@ void __attribute__((__interrupt__, no_auto_psv)) _T3Interrupt(void)
 void __attribute__((__interrupt__, no_auto_psv)) _CNInterrupt(void)
 {
    Nop();
-
-   if (SWITCH1)
-   {
-      led3Toggle();
-   }
 
    if (SWITCH2)
    {

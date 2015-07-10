@@ -119,3 +119,16 @@ void msDelay(uint32_t ms)
    for(;i;i--)
       Nop();
 }
+
+/*******************************************************************************
+ * Function:      _AddressError
+ * Inputs:        None
+ * Outputs:       None
+ * Description:   Used for debug to try and catch IOPUWR reset
+ * ****************************************************************************/
+void __attribute__((__interrupt__)) _AddressError(void)
+{
+        INTCON1bits.ADDRERR = 0;        //Clear the trap flag
+        while (1);
+        Nop();
+}

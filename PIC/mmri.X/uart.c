@@ -33,7 +33,7 @@ uint8_t msg_ready_u2;
 int8_t dma_config[4] = {0, 0, 0, 0};
 
 // If bit is set, echo on UART
-uint8_t uart_echo = 0b0001;
+uint8_t uart_echo = 0b0000;
 
 // Print buffer for any other function using DMA
 uint8_t gp_buff_A[2000];
@@ -753,10 +753,6 @@ int8_t *uGetMmriMsg()
 
       // get pointer to beginning of buffer
       tmp_ptr = &mmri_buff[mmri_rb++][0];
-
-      // roll over
-      if (mmri_rb >= NUM_RX_BUFFS)
-         mmri_rb = 0;
 
       return(tmp_ptr);
    }

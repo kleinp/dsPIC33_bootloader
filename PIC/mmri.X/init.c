@@ -68,12 +68,12 @@ void initIO(void)
    // 2        I     N/A      Push button (S0)
    // 3-4      O     0        Unused (low output)
    // 5        O     0        D3 (general purpose digital I/O)
-   // 6        O     0        D2 (general purpose digital I/O)
-   // 7        O     0        D1 (general purpose digital I/O)
+   // 6        I     N/A      D2 (general purpose digital I/O) (3.3V USB-serial)
+   // 7        I     N/A      D1 (general purpose digital I/O) (Rx USB-serial)
    // 8-15     N/A   N/A      Unimplemented on this device
    ANSELE = 0x0000;
    LATE = 0x0000;
-   TRISE = 0x0007;
+   TRISE = 0x00C7;
 
    // ** Port F ****************************************************************
    // Pin      I/O?  Default  Description
@@ -94,7 +94,7 @@ void initIO(void)
    // 2        O     0        SCL (I2C clock line)
    // 3        O     0        SDA (I2C data line)
    // 4-5      N/A   N/A      Unimplemented on this device
-   // 6        O     0        D0 (general purpose digital I/O)
+   // 6        O     0        D0 (general purpose digital I/O) (Tx USB-serial)
    // 7        O     0        Unused (low output)
    // 8        O     0        Unused (low output)
    // 9        O     0        Unused (low output)
@@ -107,8 +107,11 @@ void initIO(void)
    __builtin_write_OSCCONL(OSCCON & 0xBF);
 
    // UART1 bluetooth serial port
-   _RP101R = 0b000001; // Tx
-   _U1RXR = 100; // Rx
+   //_RP101R = 0b000001; // Tx
+   //_U1RXR = 100; // Rx
+
+   _RP118R = 0b000001;  // Tx
+   _U1RXR = 87;         // Rx
 
    // Encoder left
    _QEA1R = 97; // ENC_L
@@ -154,5 +157,5 @@ void initPeripherals0(void)
    _T3IE = 1;
    T2CONbits.TON = 1;
 
-   u1Init(921600, NO_PARITY, ONE_STOP_BIT);
+   u1Init(460800, NO_PARITY, ONE_STOP_BIT);
 }

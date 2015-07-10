@@ -56,7 +56,7 @@ char rw_stat[] = "ro";
 char *type[] = {"undef ", "uint8 ", "int8  ", "uint16", "int16 ", "uint32",
    "int32 ", "float ", "string"};
 
-int8_t binary_val_lengths[] = {0, 1, 1, 2, 2, 4, 4, 4, 1};
+uint8_t binary_val_lengths[] = {0, 1, 1, 2, 2, 4, 4, 4, 20};
 uint8_t response_buffer[200];
 
 /*******************************************************************************
@@ -132,10 +132,14 @@ void mmriMsgHandler()
 
    if (msg_ptr) // a message is available
    {
-      if (*++msg_ptr == ':')
-         mmriParseBinary(--msg_ptr);
+      led3On();
+
+      if (*(msg_ptr+1) == ':')
+         mmriParseBinary(msg_ptr);
       else
-         mmriParseAscii(--msg_ptr);
+         mmriParseAscii(msg_ptr);
+      
+      led3Off();
    }
 }
 
@@ -149,26 +153,25 @@ void mmriMsgHandler()
  * ****************************************************************************/
 void mmriParseBinary(int8_t *buf)
 {
-   uint8_t * ptr_A = &gp_buff_A[0], *ptr_B = &gp_buff_B[0];
+   uint8_t *ptr_A = &gp_buff_A[0], *ptr_B = &gp_buff_B[0];
 
    uint16_t i, print_len = 0;
-   int16_t msg_len = (int16_t)*buf++;
-   uint8_t addr, num, var_len;
+   int16_t var_len, msg_len = (int16_t)*buf++;
+   uint8_t addr, num, error = 0;
 
    //printf("msg len: %i\n", msg_len);
+
+   // Start of binary message
+   gp_buff_A[print_len++] = ':';
 
    // if message length is less than 3, it contains nothing useful
    // first char is ':' followed by cmd type
    if (msg_len < 3)
-      gp_buff_A[print_len++] = BADLEN;
+   {
+      error = BADLEN;  // error
+   }
    else
    {
-      // Start of binary message
-      gp_buff_A[print_len++] = ':';
-
-      // placeholder for potential errors
-      // gp_buff_A[print_len++] = 0;
-
       // ignore the ':' and switch off of the next byte (command type)
       buf++;
 
@@ -180,7 +183,7 @@ void mmriParseBinary(int8_t *buf)
          case 1: // Get register(s)
             while(msg_len > 0)
             {
-               addr = *buf++;
+               addr = (uint8_t)*buf++;
                msg_len--;
 
                print_len += mmriGetRegBin(addr, &gp_buff_A[print_len]);
@@ -189,11 +192,14 @@ void mmriParseBinary(int8_t *buf)
          case 2: // Multi-get register(s)
             while(msg_len > 0)
             {
-               addr = *buf++;
+               addr = (uint8_t)*buf++;
                msg_len--;
 
                if (msg_len == 0) // incomplete command
+               {
+                  error = INCOMPLETE;
                   break;
+               }
 
                num = *buf++;
                msg_len--;
@@ -208,19 +214,20 @@ void mmriParseBinary(int8_t *buf)
          case 3: // Set register(s)
             while(msg_len > 0)
             {
-               addr = *buf++;
+               addr = (uint8_t)*buf++;
                msg_len--;
 
-               var_len = binary_val_lengths[MMRI[addr].type];
+               var_len = (int16_t)binary_val_lengths[MMRI[addr].type];
                if (msg_len < var_len) // incomplete command
+               {
+                  error = INCOMPLETE;
                   break;
+               }
 
                msg_len-=var_len;
-
-               if (MMRI[addr].type == STRING)   // strings are variable length
-                  msg_len -= *buf;
-
-               gp_buff_A[print_len++] = mmriSetRegBin(addr, (void *)buf);
+               gp_buff_A[print_len] = mmriSetRegBin(addr, (void *)buf);
+               print_len++;
+               buf+=var_len;
             }
             break;
          case 4: // Get register(s) format
@@ -239,7 +246,10 @@ void mmriParseBinary(int8_t *buf)
                msg_len--;
 
                if (msg_len == 0)
+               {
+                  error = INCOMPLETE;
                   break;
+               }
 
                num = *buf++;
                msg_len--;
@@ -252,8 +262,18 @@ void mmriParseBinary(int8_t *buf)
             }
             break;
          default: // unknown command type
+            error = UNKNOWN;
             break;
       }
+   }
+
+   // If there was an error, just return error code and not the rest of message
+   // since we can't tell in which part of the command the error occured
+   if (error)
+   {
+      gp_buff_A[0] = ';';
+      gp_buff_A[1] = error;
+      print_len = 2;
    }
 
    // Add escape characters as required by transferring the data to another buffer
@@ -467,7 +487,7 @@ uint8_t mmriGetRegBin(uint8_t addr, uint8_t *buf)
    static BYTEwise byte_separated;
    static uint8_t *str_ptr;
 
-   int16_t i, num_bytes = 0;
+   int16_t i, remaining, num_bytes = 0;
 
    if (permission_level >= MMRI[addr].pwp && MMRI[addr].used)
    {
@@ -499,12 +519,16 @@ uint8_t mmriGetRegBin(uint8_t addr, uint8_t *buf)
             // First character of string response is length of string in bytes
             // followed by that many characters
             str_ptr = (uint8_t*)mmriGetRegPtr(addr);
-            num_bytes = strlen((char *)str_ptr);
-            *buf++ = num_bytes;
-            i = num_bytes;
-            while (*str_ptr && i--)
+            i = strlen((char *)str_ptr);
+            remaining = 20-i;
+
+            while (*str_ptr && i--)    // copy the string
                *buf++ = *str_ptr++;
-            num_bytes++;   // for the string length byte
+
+            while(remaining--)         // pad with zeros
+               *buf++ = 0;
+
+            num_bytes+=20;
             break;
          default:
             break;
@@ -565,8 +589,6 @@ uint8_t mmriGetRegAscii(uint8_t addr, uint8_t *buf)
  * ****************************************************************************/
 uint8_t mmriSetRegBin(uint8_t addr, void *val)
 {
-   static uint8_t str_len;
-
    // special case, register 5 - password
    if (addr == 5)
    {
@@ -608,7 +630,7 @@ uint8_t mmriSetRegBin(uint8_t addr, void *val)
       }
    }
    // special case register 4 - UART baud rate
-   if (addr == 4)
+   if (addr == 7)
    {
       // TODO: Implement baud rate changing
       return(BADVAL);
@@ -618,29 +640,20 @@ uint8_t mmriSetRegBin(uint8_t addr, void *val)
       switch (MMRI[addr].type)
       {
          case UINT8:
-            *(uint8_t*)MMRI[addr].ptr = *(uint8_t*)val;
-            break;
          case INT8:
-            *(int8_t*)MMRI[addr].ptr = *(int8_t*)val;
+            memcpy(MMRI[addr].ptr, val, 1);
             break;
          case UINT16:
-            *(uint16_t*)MMRI[addr].ptr = *(uint16_t*)val;
-            break;
          case INT16:
-            *(int16_t*)MMRI[addr].ptr = *(int16_t*)val;
+            memcpy(MMRI[addr].ptr, val, 2);
             break;
          case UINT32:
-            *(uint32_t*)MMRI[addr].ptr = *(uint32_t*)val;
-            break;
          case INT32:
-            *(int32_t*)MMRI[addr].ptr = *(int32_t*)val;
-            break;
          case FLOAT:
-            *(float*)MMRI[addr].ptr = *(float*)val;
+            memcpy(MMRI[addr].ptr, val, 4);
             break;
          case STRING:
-            str_len = *(uint8_t *)val++;
-            memcpy((char*)MMRI[addr].ptr, (char*)val, str_len);
+            memcpy((char*)MMRI[addr].ptr, (char*)val, 20);
             break;
          default:
             return(UNKNOWN);
@@ -651,7 +664,7 @@ uint8_t mmriSetRegBin(uint8_t addr, void *val)
    else if (MMRI[addr].used)
    {
       // Bad permission to write to the register
-      return(BADPASS);
+      return(BADADDR);
    }
 
    return(UNKNOWN);
@@ -720,14 +733,21 @@ uint8_t mmriSetRegAscii(uint8_t addr, uint8_t *buf)
             return(BADVAL);
          return(mmriSetRegBin(addr, (void *)&float_val));
       case STRING:
+         // The ASCII format doesn't require a length of 20, so this case
+         // doesn't call the binary equivalent
          if (strlen(str) > 20)
             return(BADVAL);
-         if (*str) // only use strcpy if the string isn't blank
-            strcpy((char*)MMRI[addr].ptr, str);
+         if (MMRI[addr].rw)
+         {
+            if (*str) // only use strcpy if the string isn't blank
+               strcpy((char*)MMRI[addr].ptr, str);
+            else
+               *(char*)MMRI[addr].ptr = 0;
+            
+            return(NOERROR);
+         }
          else
-            *(char*)MMRI[addr].ptr = 0;
-
-         return(NOERROR);
+            return(BADADDR);
       default:
          return(UNKNOWN);
    }
@@ -745,27 +765,7 @@ uint8_t mmriSetRegAscii(uint8_t addr, uint8_t *buf)
  * ****************************************************************************/
 uint8_t mmriGetRegTypeBin(uint8_t addr, uint8_t *buf)
 {
-   switch (MMRI[addr].type)
-   {
-      case UINT8: *buf = UINT8;
-         break;
-      case INT8: *buf = INT8;
-         break;
-      case UINT16: *buf = UINT16;
-         break;
-      case INT16: *buf = INT16;
-         break;
-      case UINT32: *buf = UINT32;
-         break;
-      case INT32: *buf = INT32;
-         break;
-      case FLOAT: *buf = FLOAT;
-         break;
-      case STRING: *buf = STRING;
-         break;
-      default: *buf = UNDEF;
-         break;
-   }
+   *buf = (uint8_t)(MMRI[addr].config >> 1);
 
    return(1);
 }
@@ -790,6 +790,6 @@ uint8_t mmriGetRegTypeAscii(uint8_t addr, uint8_t *buf)
       case INT32: return(sprintf((char *)buf, "INT32"));
       case FLOAT: return(sprintf((char *)buf, "FLOAT"));
       case STRING: return(sprintf((char *)buf, "STRING"));
-      default: return(sprintf((char *)buf, "?"));
+      default: return(sprintf((char *)buf, "UNDEF"));
    }
 }
