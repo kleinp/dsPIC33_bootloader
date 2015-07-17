@@ -126,7 +126,7 @@ void msDelay(uint32_t ms)
  * Outputs:       None
  * Description:   Used for debug to try and catch IOPUWR reset
  * ****************************************************************************/
-void __attribute__((__interrupt__)) _AddressError(void)
+void __attribute__((interrupt, no_auto_psv)) _AddressError(void)
 {
         INTCON1bits.ADDRERR = 0;        //Clear the trap flag
         while (1);

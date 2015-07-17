@@ -57,7 +57,6 @@ char *type[] = {"undef ", "uint8 ", "int8  ", "uint16", "int16 ", "uint32",
    "int32 ", "float ", "string"};
 
 uint8_t binary_val_lengths[] = {0, 1, 1, 2, 2, 4, 4, 4, 20};
-uint8_t response_buffer[200];
 
 /*******************************************************************************
  * Function:      mmriInit
@@ -276,6 +275,9 @@ void mmriParseBinary(int8_t *buf)
       print_len = 2;
    }
 
+   // wait for gp_buff_B to be finished transmitting
+   while (uDmaStatus(MMRI_DMA));
+   
    // Add escape characters as required by transferring the data to another buffer
    i = print_len;
    while (i--)
@@ -291,7 +293,6 @@ void mmriParseBinary(int8_t *buf)
    }
 
    gp_buff_B[print_len++] = '\n';
-   while (uDmaStatus(MMRI_DMA));
    uDmaTx(&gp_buff_B[0], print_len, MMRI_DMA, MMRI_U);
 
 }
@@ -323,6 +324,9 @@ void mmriParseAscii(int8_t *buf)
 
    // First part of message is register
    sub_str = strtok(str_buf, delim);
+
+   // wait for gp_buff_B to be finished transmitting
+   while (uDmaStatus(MMRI_DMA));
 
    while (*sub_str)
    {
@@ -414,7 +418,6 @@ void mmriParseAscii(int8_t *buf)
    if (print_len)
    {
       gp_buff_A[print_len++] = '\n';
-      while (uDmaStatus(MMRI_DMA));
       uDmaTx(&gp_buff_A[0], print_len, MMRI_DMA, MMRI_U);
    }
 }
@@ -653,7 +656,7 @@ uint8_t mmriSetRegBin(uint8_t addr, void *val)
             memcpy(MMRI[addr].ptr, val, 4);
             break;
          case STRING:
-            memcpy((char*)MMRI[addr].ptr, (char*)val, 20);
+            memcpy(MMRI[addr].ptr, val, 20);
             break;
          default:
             return(UNKNOWN);

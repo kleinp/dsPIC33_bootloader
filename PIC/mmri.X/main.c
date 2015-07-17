@@ -29,11 +29,11 @@ int main(void)
    uint16_t reset = RCON;
    uint8_t uint8 = 0xA;
    int8_t int8 = 0x10;
-   uint16_t uint16;
-   int16_t int16;
-   uint32_t uint32 = 0xABCDEF;
-   int32_t int32;
-   float fval;
+   uint16_t uint16 = 67;
+   int16_t int16 = 43;
+   uint32_t uint32 = 0;
+   int32_t int32 = 0;
+   float fval = 0;
 
    initIO();
 
@@ -57,6 +57,8 @@ int main(void)
    {
       // Do Low priority stuff
       mmriMsgHandler();
+      uint32++;
+      fval+=0.05;
    }
 
    return 0;
